@@ -1,0 +1,46 @@
+name: Factory CI
+run-name: factory-${{ inputs.dispatch_id }}-${{ inputs.candidate_sha }}-${{ inputs.ci_location }}
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        required: true
+        type: string
+      dispatch_id:
+        required: true
+        type: string
+      ci_location:
+        required: true
+        type: choice
+        options: [homelab, github-hosted]
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Factory tests
+    runs-on: ${{ inputs.ci_location == 'homelab' && fromJSON(format('["self-hosted","linux","x64","factory-{0}"]', inputs.dispatch_id)) || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    container:
+      image: node:24-bookworm@sha256:a2bdd7dabee64357fd6291fe621977c33cda500d13e15dca3e0e92c9a3c9f3b1
+      options: --cap-drop=ALL --security-opt=no-new-privileges --memory=1536m --cpus=1.5 --pids-limit=256
+    steps:
+      - name: Checkout recorded candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - name: Verify checkout identity
+        env:
+          EXPECTED_SHA: ${{ inputs.candidate_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Build and test
+        run: |
+          node scripts/build.mjs
+          node --test
+      - name: Upload exact-candidate build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: factory-${{ inputs.candidate_sha }}-${{ inputs.dispatch_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
